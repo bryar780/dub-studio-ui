@@ -3,10 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const App = () => {
   const [file, setFile] = useState(null);
-  const [stage, setStage] = useState('upload'); // upload, recording, processing, result
+  const [stage, setStage] = useState('upload'); 
   const [script, setScript] = useState([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
+  const [countdown, setCountdown] = useState(null);
   const [jobId, setJobId] = useState(null);
   const [outputUrl, setOutputUrl] = useState(null);
   const [recordedBlob, setRecordedBlob] = useState(null);
@@ -33,18 +34,34 @@ const App = () => {
       setJobId(data.job_id);
       setStage('recording');
     } catch (err) {
-      alert("AI failed to read the speech. Try a clearer video!");
+      alert("AI Error: Could not read script. Ensure video has clear dialogue.");
       setStage('upload');
     }
   };
 
-  const startRecording = async () => {
+  const startCountdown = () => {
+    let count = 3;
+    setCountdown(count);
+    const timer = setInterval(() => {
+      count -= 1;
+      if (count === 0) {
+        clearInterval(timer);
+        setCountdown(null);
+        actualStart();
+      } else {
+        setCountdown(count);
+      }
+    }, 1000);
+  };
+
+  const actualStart = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorderRef.current = new MediaRecorder(stream);
     chunksRef.current = [];
     mediaRecorderRef.current.ondataavailable = (e) => chunksRef.current.push(e.data);
     mediaRecorderRef.current.onstop = () => setRecordedBlob(new Blob(chunksRef.current, { type: 'audio/mp3' }));
 
+    // SYNCED START
     mediaRecorderRef.current.start();
     videoRef.current.currentTime = 0;
     videoRef.current.play();
@@ -59,9 +76,10 @@ const App = () => {
 
   const submitDub = async (mode) => {
     if (mode === 'mp3') {
-      const url = URL.createObjectURL(recordedBlob);
       const a = document.createElement('a');
-      a.href = url; a.download = "recording.mp3"; a.click();
+      a.href = URL.createObjectURL(recordedBlob);
+      a.download = "my_voiceover.mp3";
+      a.click();
       return;
     }
     setStage('processing');
@@ -75,76 +93,98 @@ const App = () => {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white p-4 md:p-10 font-sans">
-      <div className="max-w-5xl mx-auto">
-        <header className="flex justify-between items-center mb-12">
-          <h1 className="text-3xl font-black italic tracking-tighter text-white">DUB<span className="text-[#C8A2C8]">STUDIO</span></h1>
-          <div className="text-[10px] bg-white/10 px-3 py-1 rounded-full uppercase tracking-widest text-white/50">Version 2.0 • Studio Mode</div>
-        </header>
+    <div className="min-h-screen bg-black text-white p-6 font-sans selection:bg-[#C8A2C8]/30">
+      <div className="max-w-6xl mx-auto">
+        
+        {/* HEADER */}
+        <div className="flex justify-between items-center mb-12">
+          <h1 className="text-2xl font-black italic text-[#C8A2C8] tracking-tighter">STUDIO<span className="text-white">DUB</span></h1>
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isRecording ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
+            <span className="text-[10px] font-bold tracking-[0.2em] opacity-50 uppercase">{isRecording ? "On Air" : "Ready"}</span>
+          </div>
+        </div>
 
         <AnimatePresence mode="wait">
           {stage === 'upload' && (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="h-[60vh] flex flex-col items-center justify-center border border-white/10 rounded-[3rem] bg-white/[0.02]">
-              <input type="file" onChange={handleInitialUpload} className="hidden" id="v-upload" />
-              <label htmlFor="v-upload" className="group cursor-pointer text-center">
-                <div className="w-24 h-24 bg-[#C8A2C8]/10 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
-                  <svg className="w-10 h-10 text-[#C8A2C8]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-[70vh] border border-white/5 bg-white/[0.01] rounded-[3rem] flex flex-col items-center justify-center">
+              <input type="file" onChange={handleInitialUpload} className="hidden" id="v-file" />
+              <label htmlFor="v-file" className="cursor-pointer group text-center">
+                <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center mx-auto mb-6 group-hover:bg-[#C8A2C8]/20 transition-all">
+                  <svg className="w-8 h-8 text-[#C8A2C8]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
                 </div>
-                <p className="text-2xl font-bold">Import Video</p>
-                <p className="text-white/40 mt-2">AI will generate your script automatically</p>
+                <h2 className="text-xl font-bold">Import Session</h2>
+                <p className="text-white/30 text-sm mt-2">Upload the scene you want to voice act</p>
               </label>
             </motion.div>
           )}
 
           {stage === 'recording' && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-              <div className="rounded-[2rem] overflow-hidden bg-[#111] border border-white/5 shadow-2xl aspect-video">
-                <video ref={videoRef} src={file ? URL.createObjectURL(file) : ""} className="w-full h-full object-cover" onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)} />
-              </div>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                
+                {/* VIDEO PLAYER */}
+                <div className="lg:col-span-7 relative group rounded-[2rem] overflow-hidden bg-zinc-900 border border-white/10 shadow-2xl">
+                  <video ref={videoRef} src={file ? URL.createObjectURL(file) : ""} className="w-full aspect-video object-cover" onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)} />
+                  
+                  {/* COUNTDOWN OVERLAY */}
+                  {countdown && (
+                    <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
+                      <motion.span initial={{ scale: 0.5 }} animate={{ scale: 1.5 }} key={countdown} className="text-9xl font-black text-[#C8A2C8]">{countdown}</motion.span>
+                    </div>
+                  )}
+                </div>
 
-              <div className="flex flex-col h-full justify-between py-4">
-                <div className="bg-white/5 p-8 rounded-[2.5rem] border border-white/10 h-[300px] overflow-y-auto custom-scrollbar">
-                  <div className="flex flex-wrap gap-x-3 gap-y-4 text-3xl font-bold leading-relaxed">
-                    {script.map((item, i) => (
-                      <span key={i} className={`transition-all duration-300 ${currentTime >= item.start && currentTime <= item.end ? 'text-[#C8A2C8] scale-110' : 'text-white/20'}`}>
-                        {item.word}
-                      </span>
-                    ))}
+                {/* TELEPROMPTER */}
+                <div className="lg:col-span-5 h-[400px] flex flex-col bg-zinc-900/50 rounded-[2rem] border border-white/10 p-8">
+                  <span className="text-[10px] font-black tracking-widest text-[#C8A2C8] mb-6 uppercase">Script Monitor</span>
+                  <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
+                    <div className="flex flex-wrap gap-x-2 gap-y-3 text-2xl font-bold leading-relaxed">
+                      {script.map((item, i) => (
+                        <span 
+                          key={i} 
+                          className={`transition-all duration-200 ${currentTime >= item.start && currentTime <= item.end ? 'text-white scale-110 bg-[#C8A2C8] px-2 rounded-lg' : 'text-white/20'}`}
+                        >
+                          {item.word}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
+              </div>
 
-                <div className="flex flex-wrap gap-4 mt-8">
-                  {!isRecording && !recordedBlob && (
-                    <button onClick={startRecording} className="flex-1 bg-[#C8A2C8] text-black h-16 rounded-full font-black text-lg hover:shadow-[0_0_30px_rgba(200,162,200,0.4)] transition-all">START RECORDING</button>
-                  )}
-                  {isRecording && (
-                    <button onClick={stopRecording} className="flex-1 bg-red-600 h-16 rounded-full font-black text-lg animate-pulse">STOP & FINISH</button>
-                  )}
-                  {recordedBlob && !isRecording && (
-                    <>
-                      <button onClick={() => setRecordedBlob(null)} className="px-8 h-16 rounded-full border border-white/10 font-bold hover:bg-white/5">RETRY</button>
-                      <button onClick={() => submitDub('mp3')} className="flex-1 bg-white text-black h-16 rounded-full font-black">GET MP3</button>
-                      <button onClick={() => submitDub('video')} className="flex-1 bg-[#C8A2C8] text-black h-16 rounded-full font-black">FINALIZE VIDEO</button>
-                    </>
-                  )}
-                </div>
+              {/* ACTION BAR */}
+              <div className="flex justify-center items-center gap-6 py-6 border-t border-white/5">
+                {!isRecording && !recordedBlob && (
+                  <button onClick={startCountdown} className="bg-[#C8A2C8] text-black px-12 py-5 rounded-full font-black text-lg hover:scale-105 transition-transform">RECORD SCENE</button>
+                )}
+                {isRecording && (
+                  <button onClick={stopRecording} className="bg-red-600 text-white px-12 py-5 rounded-full font-black text-lg animate-pulse">STOP</button>
+                )}
+                {recordedBlob && !isRecording && (
+                  <div className="flex gap-4">
+                    <button onClick={() => { setRecordedBlob(null); setCountdown(null); }} className="px-8 py-5 rounded-full border border-white/10 font-bold hover:bg-white/5">DISCARD</button>
+                    <button onClick={() => submitDub('mp3')} className="bg-white text-black px-8 py-5 rounded-full font-bold">EXPORT MP3</button>
+                    <button onClick={() => submitDub('video')} className="bg-[#C8A2C8] text-black px-12 py-5 rounded-full font-black">SUBMIT DUB</button>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
 
+          {/* LOADING & RESULT STAGES (KEEP SAME AS PREVIOUS) */}
           {stage === 'processing' && (
-            <div className="h-[60vh] flex flex-col items-center justify-center">
-              <div className="w-12 h-12 border-2 border-[#C8A2C8] border-t-transparent rounded-full animate-spin mb-6"></div>
-              <p className="text-[#C8A2C8] font-mono tracking-widest animate-pulse">ANALYZING SPEECH PATTERNS...</p>
-            </div>
+             <div className="h-[60vh] flex flex-col items-center justify-center">
+                <div className="w-10 h-10 border-2 border-[#C8A2C8] border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p className="text-xs tracking-[0.3em] text-[#C8A2C8] font-bold animate-pulse">PROCESSING AUDIO LAYERS</p>
+             </div>
           )}
 
           {stage === 'result' && (
             <div className="text-center py-20 bg-white/[0.02] border border-white/10 rounded-[3rem]">
-              <div className="text-6xl mb-6">✨</div>
-              <h2 className="text-4xl font-black mb-10">Production Complete</h2>
-              <a href={outputUrl} download className="bg-[#C8A2C8] text-black px-16 py-5 rounded-full font-black text-xl hover:scale-105 transition-transform inline-block">DOWNLOAD VIDEO</a>
-              <button onClick={() => window.location.reload()} className="block mx-auto mt-8 text-white/30 underline uppercase text-[10px] tracking-widest">New Project</button>
+              <h2 className="text-4xl font-black mb-10">Production Ready</h2>
+              <a href={outputUrl} download className="bg-[#C8A2C8] text-black px-20 py-6 rounded-full font-black text-xl shadow-[0_0_50px_rgba(200,162,200,0.3)] inline-block">DOWNLOAD FINAL</a>
+              <button onClick={() => window.location.reload()} className="block mx-auto mt-10 text-white/20 text-[10px] uppercase tracking-widest font-bold underline">Start New Session</button>
             </div>
           )}
         </AnimatePresence>
@@ -154,4 +194,3 @@ const App = () => {
 };
 
 export default App;
-
