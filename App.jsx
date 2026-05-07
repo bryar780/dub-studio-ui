@@ -14,20 +14,17 @@ const App = () => {
 
   const videoRef = useRef(null);
   const scrollContainerRef = useRef(null);
-  const wordRefs = useRef([]); // Stores references to each word for perfect scrolling
+  const wordRefs = useRef([]);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
 
   const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
 
-  // 🎯 BULLETPROOF AUTO-SCROLL
+  // 🎯 Auto-scroll logic: Follows the active word
   useEffect(() => {
-    // Find exactly which word we are currently on
     const activeIndex = script.findIndex(
       (item) => currentTime >= item.start && currentTime <= item.end
     );
-
-    // If we found the word, force the container to scroll to it
     if (activeIndex !== -1 && wordRefs.current[activeIndex]) {
       wordRefs.current[activeIndex].scrollIntoView({
         behavior: 'smooth',
@@ -58,53 +55,48 @@ const App = () => {
     }
   };
 
-  const startCountdown = () => {
-    // 🔓 THE WAKE-UP HACK: Tricks the mobile browser into unlocking the video
-    if (videoRef.current) {
-      videoRef.current.muted = true; // Mute briefly to ensure it plays
-      videoRef.current.play().then(() => {
-        videoRef.current.pause();
-        videoRef.current.muted = false; // Unmute for the actual recording
-        videoRef.current.currentTime = 0;
-      }).catch(e => console.log("Video unlock pending..."));
-    }
-
-    let count = 3;
-    setCountdown(count);
-    const timer = setInterval(() => {
-      count -= 1;
-      if (count === 0) {
-        clearInterval(timer);
-        setCountdown(null);
-        actualStart();
-      } else {
-        setCountdown(count);
-      }
-    }, 1000);
-  };
-
-  const actualStart = async () => {
+  // 🚀 FIXED START SEQUENCE (Permissions first, then countdown, then play)
+  const startRecordingFlow = async () => {
     try {
+      // 1. Get Mic Permission IMMEDIATELY on tap (Fixes the freeze)
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       chunksRef.current = [];
       mediaRecorderRef.current.ondataavailable = (e) => chunksRef.current.push(e.data);
       mediaRecorderRef.current.onstop = () => setRecordedBlob(new Blob(chunksRef.current, { type: 'audio/mp3' }));
 
-      mediaRecorderRef.current.start();
-      
-      // 🎬 Force video to play exactly when recording starts
+      // 2. Unlock Video for Mobile
       if (videoRef.current) {
-        videoRef.current.currentTime = 0;
-        const playPromise = videoRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise.catch(error => console.error("Playback prevented:", error));
-        }
+        videoRef.current.muted = true;
+        videoRef.current.play().then(() => {
+          videoRef.current.pause();
+          videoRef.current.currentTime = 0;
+          videoRef.current.muted = false; // Unmute for recording
+        }).catch(e => console.log("Unlock pending"));
       }
-      setIsRecording(true);
+
+      // 3. Start 3-2-1 Countdown
+      let count = 3;
+      setCountdown(count);
+      const timer = setInterval(() => {
+        count -= 1;
+        if (count === 0) {
+          clearInterval(timer);
+          setCountdown(null);
+          
+          // 4. Start everything perfectly synced
+          mediaRecorderRef.current.start();
+          if (videoRef.current) {
+            videoRef.current.play();
+          }
+          setIsRecording(true);
+        } else {
+          setCountdown(count);
+        }
+      }, 1000);
+
     } catch (err) {
-      alert("Microphone access is required for the studio!");
-      setCountdown(null);
+      alert("Microphone access is required!");
     }
   };
 
@@ -142,22 +134,22 @@ const App = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-[#E0B0FF]/30 overflow-hidden relative">
+    <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-[#E0B0FF]/30 overflow-hidden relative pb-10">
       
-      {/* 🌌 Modern Ambient Glow Background */}
+      {/* 🌌 Ambient Glow */}
       <div className="fixed top-[-20%] left-[-10%] w-[50vw] h-[50vw] bg-[#E0B0FF]/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="fixed bottom-[-20%] right-[-10%] w-[50vw] h-[50vw] bg-purple-900/10 blur-[120px] rounded-full pointer-events-none" />
 
-      <div className="max-w-5xl mx-auto px-4 py-8 relative z-10 flex flex-col h-screen">
+      <div className="max-w-4xl mx-auto px-5 py-6 relative z-10 flex flex-col h-screen">
         
         {/* ✨ Header */}
-        <header className="flex justify-between items-center mb-8 shrink-0">
-          <h1 className="text-2xl md:text-3xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white to-[#E0B0FF]">
+        <header className="flex justify-between items-center mb-6 shrink-0">
+          <h1 className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white to-[#E0B0FF]">
             STUDIO<span className="italic">DUB</span>
           </h1>
-          <div className="flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-1.5 rounded-full backdrop-blur-md">
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-full backdrop-blur-md">
             <div className={`w-2 h-2 rounded-full ${isRecording ? 'bg-red-500 animate-pulse shadow-[0_0_10px_red]' : 'bg-[#E0B0FF] shadow-[0_0_10px_#E0B0FF]'}`} />
-            <span className="text-[10px] md:text-xs font-bold tracking-widest uppercase opacity-80">
+            <span className="text-[10px] font-bold tracking-widest uppercase opacity-80">
               {isRecording ? "On Air" : "Standby"}
             </span>
           </div>
@@ -168,63 +160,62 @@ const App = () => {
           {/* 📤 UPLOAD STAGE */}
           {stage === 'upload' && (
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex-1 flex flex-col items-center justify-center">
-              <div className="relative group w-full max-w-lg">
-                <div className="absolute inset-0 bg-gradient-to-r from-[#E0B0FF]/20 to-purple-600/20 rounded-[2.5rem] blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
-                <div className="relative border border-white/10 bg-black/40 backdrop-blur-2xl rounded-[2.5rem] p-12 text-center hover:border-[#E0B0FF]/30 transition-colors">
-                  <input type="file" onChange={handleInitialUpload} className="hidden" id="v-file" accept="video/*" />
-                  <label htmlFor="v-file" className="cursor-pointer block">
-                    <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-110 group-hover:bg-[#E0B0FF]/20 transition-all duration-500">
-                      <svg className="w-8 h-8 text-[#E0B0FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                    </div>
-                    <h2 className="text-2xl font-bold mb-2">Initialize Project</h2>
-                    <p className="text-white/40 text-sm">Tap to import your scene</p>
-                  </label>
-                </div>
+              <div className="relative border border-white/10 bg-black/40 backdrop-blur-2xl rounded-[2.5rem] p-10 w-full text-center hover:border-[#E0B0FF]/40 transition-colors shadow-2xl">
+                <input type="file" onChange={handleInitialUpload} className="hidden" id="v-file" accept="video/*" />
+                <label htmlFor="v-file" className="cursor-pointer block">
+                  <div className="w-20 h-20 bg-[#E0B0FF]/10 rounded-[1.5rem] flex items-center justify-center mx-auto mb-6 transition-transform hover:scale-105 hover:bg-[#E0B0FF]/20">
+                    <svg className="w-8 h-8 text-[#E0B0FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                  </div>
+                  <h2 className="text-2xl font-bold mb-2">Import Scene</h2>
+                  <p className="text-white/40 text-sm">Upload video to extract dialogue</p>
+                </label>
               </div>
             </motion.div>
           )}
 
           {/* 🎙️ RECORDING STAGE */}
           {stage === 'recording' && (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex-1 flex flex-col gap-6 h-full">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex-1 flex flex-col gap-4 h-full">
               
-              {/* Top: Video Player */}
-              <div className="relative w-full max-w-2xl mx-auto rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-2xl shrink-0">
+              {/* VIDEO PLAYER */}
+              <div className="relative w-full rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-2xl shrink-0">
                 <video 
                   ref={videoRef} 
                   src={file ? URL.createObjectURL(file) : ""} 
                   className="w-full aspect-video object-contain"
                   playsInline
+                  preload="auto"
                   onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
                   onEnded={stopRecording}
                 />
                 
                 {countdown && (
-                  <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
-                    <motion.span initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.5, opacity: 0 }} key={countdown} className="text-[8rem] md:text-[12rem] font-black text-[#E0B0FF] drop-shadow-[0_0_30px_rgba(224,176,255,0.5)]">
+                  <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+                    <motion.span initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.5, opacity: 0 }} className="text-[10rem] font-black text-[#E0B0FF]">
                       {countdown}
                     </motion.span>
                   </div>
                 )}
               </div>
 
-              {/* Middle: Teleprompter */}
-              <div className="flex-1 relative rounded-[2rem] overflow-hidden bg-white/[0.02] border border-white/10 min-h-[200px]">
-                <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-[#050505] to-transparent z-10 pointer-events-none" />
-                <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#050505] to-transparent z-10 pointer-events-none" />
+              {/* TELEPROMPTER */}
+              <div className="flex-1 relative rounded-[2rem] overflow-hidden bg-white/[0.02] border border-white/10">
+                {/* Fade edges for prompter */}
+                <div className="absolute top-0 left-0 w-full h-8 bg-gradient-to-b from-[#050505] to-transparent z-10" />
+                <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-[#050505] to-transparent z-10" />
                 
-                <div ref={scrollContainerRef} className="absolute inset-0 overflow-y-auto px-6 py-20 scroll-smooth custom-scrollbar">
-                  <p className="text-center text-3xl md:text-5xl font-bold leading-[1.6] md:leading-[1.8] flex flex-wrap justify-center gap-x-3 gap-y-4">
+                <div ref={scrollContainerRef} className="absolute inset-0 overflow-y-auto px-5 py-24 scroll-smooth custom-scrollbar">
+                  <p className="text-center text-3xl font-bold leading-relaxed flex flex-wrap justify-center gap-x-2 gap-y-3">
                     {script.map((item, i) => {
                       const isActive = currentTime >= item.start && currentTime <= item.end;
                       return (
                         <span 
                           key={i} 
                           ref={el => wordRefs.current[i] = el}
-                          className={`transition-all duration-300 rounded-xl px-2 py-1 
+                          className={`transition-all duration-200 rounded-xl px-2 py-1 
                             ${isActive 
-                              ? 'bg-[#E0B0FF] text-black shadow-[0_0_25px_rgba(224,176,255,0.6)] scale-110 z-10' 
-                              : currentTime > item.end ? 'text-white/20' : 'text-white/60'
+                              ? 'bg-[#E0B0FF] text-black shadow-[0_0_20px_rgba(224,176,255,0.5)] scale-[1.15] z-10' 
+                              : currentTime > item.end ? 'text-white/30' : 'text-white/70'
                             }`}
                         >
                           {item.word}
@@ -235,62 +226,61 @@ const App = () => {
                 </div>
               </div>
 
-              {/* Bottom: Controls */}
-              <div className="shrink-0 pb-6 pt-2">
+              {/* 🎛️ NEW SLEEK BUTTON LAYOUT */}
+              <div className="shrink-0 pt-2 pb-4">
                 {!isRecording && !recordedBlob && (
-                  <button onClick={startCountdown} className="w-full md:w-auto md:min-w-[300px] mx-auto block bg-gradient-to-r from-[#C8A2C8] to-[#E0B0FF] text-black h-16 rounded-full font-black text-xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_30px_rgba(224,176,255,0.3)]">
+                  <button onClick={startRecordingFlow} className="w-full bg-[#E0B0FF] text-black h-16 rounded-[1.5rem] font-black text-xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_30px_rgba(224,176,255,0.3)]">
                     START TAKES
                   </button>
                 )}
                 
                 {isRecording && (
-                  <button onClick={stopRecording} className="w-full md:w-auto md:min-w-[300px] mx-auto block bg-red-500/20 text-red-500 border border-red-500/50 h-16 rounded-full font-black text-xl active:bg-red-500 active:text-white transition-all shadow-[0_0_30px_rgba(239,68,68,0.2)]">
+                  <button onClick={stopRecording} className="w-full bg-red-500/20 text-red-500 border border-red-500/50 h-16 rounded-[1.5rem] font-black text-xl active:bg-red-500 active:text-white transition-all shadow-[0_0_30px_rgba(239,68,68,0.2)]">
                     CUT RECORDING
                   </button>
                 )}
 
                 {recordedBlob && !isRecording && (
-                  <div className="flex flex-col md:flex-row gap-3 md:justify-center">
-                    <button onClick={() => setRecordedBlob(null)} className="flex-1 md:flex-none md:w-40 bg-white/5 text-white border border-white/10 h-16 rounded-full font-bold hover:bg-white/10 transition-colors">
-                      DISCARD
+                  <div className="flex flex-col gap-3 w-full">
+                    {/* Primary Action */}
+                    <button onClick={() => submitDub('video')} className="w-full bg-[#E0B0FF] text-black h-16 rounded-[1.5rem] font-black text-lg shadow-[0_0_20px_rgba(224,176,255,0.3)] active:scale-[0.98] transition-transform">
+                      PRODUCE MASTER VIDEO
                     </button>
-                    <button onClick={() => submitDub('mp3')} className="flex-1 md:flex-none md:w-48 bg-white text-black h-16 rounded-full font-bold hover:bg-zinc-200 transition-colors">
-                      SAVE VOCALS
-                    </button>
-                    <button onClick={() => submitDub('video')} className="flex-1 md:flex-none md:w-64 bg-[#E0B0FF] text-black h-16 rounded-full font-black shadow-[0_0_20px_rgba(224,176,255,0.3)] hover:scale-[1.02] transition-transform">
-                      PRODUCE MASTER
-                    </button>
+                    {/* Secondary Actions Side-by-Side */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <button onClick={() => setRecordedBlob(null)} className="w-full bg-white/5 text-white border border-white/10 h-14 rounded-[1.25rem] font-bold active:bg-white/10 transition-colors text-sm">
+                        DISCARD
+                      </button>
+                      <button onClick={() => submitDub('mp3')} className="w-full bg-white text-black h-14 rounded-[1.25rem] font-bold active:bg-zinc-200 transition-colors text-sm">
+                        SAVE VOCALS (MP3)
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
             </motion.div>
           )}
 
-          {/* ⚙️ PROCESSING STAGE */}
+          {/* ⚙️ PROCESSING & RESULT */}
           {stage === 'processing' && (
              <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="w-16 h-16 relative">
-                  <div className="absolute inset-0 border-4 border-white/10 rounded-full"></div>
-                  <div className="absolute inset-0 border-4 border-[#E0B0FF] border-t-transparent rounded-full animate-spin"></div>
-                </div>
-                <p className="mt-8 text-sm tracking-[0.4em] text-[#E0B0FF] font-bold animate-pulse uppercase">Rendering Master...</p>
+                <div className="w-16 h-16 border-4 border-[#E0B0FF]/20 border-t-[#E0B0FF] rounded-full animate-spin"></div>
+                <p className="mt-6 text-xs tracking-widest text-[#E0B0FF] font-bold animate-pulse uppercase">Rendering Master...</p>
              </div>
           )}
 
-          {/* 🎬 RESULT STAGE */}
           {stage === 'result' && (
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex-1 flex flex-col items-center justify-center text-center">
-              <div className="bg-white/[0.02] border border-white/10 p-12 md:p-20 rounded-[3rem] w-full max-w-2xl backdrop-blur-xl relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#E0B0FF] to-transparent"></div>
-                <h2 className="text-4xl md:text-5xl font-black mb-10 text-white">Scene Mastered.</h2>
-                <a href={outputUrl} download className="block w-full bg-gradient-to-r from-[#C8A2C8] to-[#E0B0FF] text-black py-6 rounded-full font-black text-xl hover:shadow-[0_0_40px_rgba(224,176,255,0.4)] hover:scale-[1.02] transition-all duration-300">
-                  DOWNLOAD VIDEO
+            <div className="flex-1 flex flex-col items-center justify-center text-center">
+              <div className="bg-white/[0.02] border border-white/10 p-10 rounded-[2.5rem] w-full max-w-md">
+                <h2 className="text-3xl font-black mb-8 text-white">Scene Mastered.</h2>
+                <a href={outputUrl} download className="block w-full bg-[#E0B0FF] text-black py-5 rounded-[1.5rem] font-black text-lg hover:shadow-[0_0_30px_rgba(224,176,255,0.4)] transition-all">
+                  DOWNLOAD
                 </a>
-                <button onClick={() => window.location.reload()} className="mt-8 text-white/30 text-xs uppercase tracking-widest font-bold hover:text-white/70 transition-colors">
+                <button onClick={() => window.location.reload()} className="mt-6 text-white/40 text-xs uppercase tracking-widest font-bold underline">
                   Close Project
                 </button>
               </div>
-            </motion.div>
+            </div>
           )}
         </AnimatePresence>
       </div>
@@ -299,3 +289,4 @@ const App = () => {
 };
 
 export default App;
+
