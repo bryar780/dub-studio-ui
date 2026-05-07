@@ -7,24 +7,39 @@ const App = () => {
   const [script, setScript] = useState([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
-  const [countdown, setCountdown] = useState(null);
+  const [micGranted, setMicGranted] = useState(false);
   const [jobId, setJobId] = useState(null);
   const [outputUrl, setOutputUrl] = useState(null);
   const [recordedBlob, setRecordedBlob] = useState(null);
 
   const videoRef = useRef(null);
-  const scrollContainerRef = useRef(null);
   const wordRefs = useRef([]);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
 
   const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
 
-  // 🎯 Auto-scroll logic: Follows the active word
+  // 🏠 Home Button Reset
+  const goHome = () => {
+    if (isRecording) stopRecording();
+    setStage('upload');
+    setFile(null);
+    setScript([]);
+    setCurrentTime(0);
+    setRecordedBlob(null);
+    setMicGranted(false);
+  };
+
+  // 🎯 BULLETPROOF AUTO-SCROLL & HIGHLIGHTING
   useEffect(() => {
-    const activeIndex = script.findIndex(
-      (item) => currentTime >= item.start && currentTime <= item.end
-    );
+    if (script.length === 0) return;
+    
+    // Finds the current word and keeps it highlighted until the next word starts (fixes flickering)
+    const activeIndex = script.findIndex((item, i) => {
+      const nextItem = script[i + 1];
+      return currentTime >= item.start && (!nextItem || currentTime < nextItem.start);
+    });
+
     if (activeIndex !== -1 && wordRefs.current[activeIndex]) {
       wordRefs.current[activeIndex].scrollIntoView({
         behavior: 'smooth',
@@ -50,54 +65,35 @@ const App = () => {
       setJobId(data.job_id);
       setStage('recording');
     } catch (err) {
-      alert("Studio Error: Couldn't generate the script.");
+      alert("KurdDub Error: Couldn't generate the script.");
       setStage('upload');
     }
   };
 
-  // 🚀 FIXED START SEQUENCE (Permissions first, then countdown, then play)
-  const startRecordingFlow = async () => {
+  // 🚀 STEP 1: Get Mic Permission (Separated to satisfy mobile browsers)
+  const prepareMic = async () => {
     try {
-      // 1. Get Mic Permission IMMEDIATELY on tap (Fixes the freeze)
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
-      chunksRef.current = [];
       mediaRecorderRef.current.ondataavailable = (e) => chunksRef.current.push(e.data);
       mediaRecorderRef.current.onstop = () => setRecordedBlob(new Blob(chunksRef.current, { type: 'audio/mp3' }));
-
-      // 2. Unlock Video for Mobile
-      if (videoRef.current) {
-        videoRef.current.muted = true;
-        videoRef.current.play().then(() => {
-          videoRef.current.pause();
-          videoRef.current.currentTime = 0;
-          videoRef.current.muted = false; // Unmute for recording
-        }).catch(e => console.log("Unlock pending"));
-      }
-
-      // 3. Start 3-2-1 Countdown
-      let count = 3;
-      setCountdown(count);
-      const timer = setInterval(() => {
-        count -= 1;
-        if (count === 0) {
-          clearInterval(timer);
-          setCountdown(null);
-          
-          // 4. Start everything perfectly synced
-          mediaRecorderRef.current.start();
-          if (videoRef.current) {
-            videoRef.current.play();
-          }
-          setIsRecording(true);
-        } else {
-          setCountdown(count);
-        }
-      }, 1000);
-
+      setMicGranted(true);
     } catch (err) {
-      alert("Microphone access is required!");
+      alert("Microphone access is required for KurdDub!");
     }
+  };
+
+  // 🎬 STEP 2: Instant Action (Bypasses the "Frozen Video" block perfectly)
+  const startAction = () => {
+    chunksRef.current = [];
+    mediaRecorderRef.current.start();
+    
+    if (videoRef.current) {
+      videoRef.current.muted = false;
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(e => console.error("Playback blocked:", e));
+    }
+    setIsRecording(true);
   };
 
   const stopRecording = () => {
@@ -108,13 +104,14 @@ const App = () => {
       videoRef.current.pause();
     }
     setIsRecording(false);
+    setMicGranted(false); // Reset so they have to tap "Action" again for a retry
   };
 
   const submitDub = async (mode) => {
     if (mode === 'mp3') {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(recordedBlob);
-      a.download = "studio_vocal_take.mp3";
+      a.download = "kurddub_vocals.mp3";
       a.click();
       return;
     }
@@ -142,11 +139,11 @@ const App = () => {
 
       <div className="max-w-4xl mx-auto px-5 py-6 relative z-10 flex flex-col h-screen">
         
-        {/* ✨ Header */}
+        {/* ✨ Header (Now completely clickable to go Home) */}
         <header className="flex justify-between items-center mb-6 shrink-0">
-          <h1 className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white to-[#E0B0FF]">
-            STUDIO<span className="italic">DUB</span>
-          </h1>
+          <button onClick={goHome} className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white to-[#E0B0FF] hover:scale-105 transition-transform origin-left">
+            Kurd<span className="italic">Dub</span>
+          </button>
           <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-full backdrop-blur-md">
             <div className={`w-2 h-2 rounded-full ${isRecording ? 'bg-red-500 animate-pulse shadow-[0_0_10px_red]' : 'bg-[#E0B0FF] shadow-[0_0_10px_#E0B0FF]'}`} />
             <span className="text-[10px] font-bold tracking-widest uppercase opacity-80">
@@ -184,34 +181,28 @@ const App = () => {
                   src={file ? URL.createObjectURL(file) : ""} 
                   className="w-full aspect-video object-contain"
                   playsInline
-                  preload="auto"
+                  webkit-playsinline="true"
                   onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
                   onEnded={stopRecording}
                 />
-                
-                {countdown && (
-                  <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
-                    <motion.span initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.5, opacity: 0 }} className="text-[10rem] font-black text-[#E0B0FF]">
-                      {countdown}
-                    </motion.span>
-                  </div>
-                )}
               </div>
 
               {/* TELEPROMPTER */}
               <div className="flex-1 relative rounded-[2rem] overflow-hidden bg-white/[0.02] border border-white/10">
-                {/* Fade edges for prompter */}
                 <div className="absolute top-0 left-0 w-full h-8 bg-gradient-to-b from-[#050505] to-transparent z-10" />
                 <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-[#050505] to-transparent z-10" />
                 
-                <div ref={scrollContainerRef} className="absolute inset-0 overflow-y-auto px-5 py-24 scroll-smooth custom-scrollbar">
+                <div className="absolute inset-0 overflow-y-auto px-5 py-24 scroll-smooth custom-scrollbar">
                   <p className="text-center text-3xl font-bold leading-relaxed flex flex-wrap justify-center gap-x-2 gap-y-3">
                     {script.map((item, i) => {
-                      const isActive = currentTime >= item.start && currentTime <= item.end;
+                      // Logic ensures the word stays highlighted until the exact moment the next word starts
+                      const nextStart = script[i + 1] ? script[i + 1].start : item.end + 1;
+                      const isActive = currentTime >= item.start && currentTime < nextStart;
+                      
                       return (
                         <span 
                           key={i} 
-                          ref={el => wordRefs.current[i] = el}
+                          ref={el => { if (el) wordRefs.current[i] = el; }}
                           className={`transition-all duration-200 rounded-xl px-2 py-1 
                             ${isActive 
                               ? 'bg-[#E0B0FF] text-black shadow-[0_0_20px_rgba(224,176,255,0.5)] scale-[1.15] z-10' 
@@ -228,9 +219,18 @@ const App = () => {
 
               {/* 🎛️ NEW SLEEK BUTTON LAYOUT */}
               <div className="shrink-0 pt-2 pb-4">
-                {!isRecording && !recordedBlob && (
-                  <button onClick={startRecordingFlow} className="w-full bg-[#E0B0FF] text-black h-16 rounded-[1.5rem] font-black text-xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_30px_rgba(224,176,255,0.3)]">
-                    START TAKES
+                
+                {/* 1. Request Mic */}
+                {!isRecording && !recordedBlob && !micGranted && (
+                  <button onClick={prepareMic} className="w-full bg-white/10 text-white border border-white/20 h-16 rounded-[1.5rem] font-bold text-lg hover:bg-white/20 transition-all">
+                    1. ENABLE MICROPHONE
+                  </button>
+                )}
+
+                {/* 2. Instant Action (Plays Video immediately) */}
+                {!isRecording && !recordedBlob && micGranted && (
+                  <button onClick={startAction} className="w-full bg-[#E0B0FF] text-black h-16 rounded-[1.5rem] font-black text-xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_30px_rgba(224,176,255,0.4)]">
+                    2. ACTION! 🎬
                   </button>
                 )}
                 
@@ -242,13 +242,11 @@ const App = () => {
 
                 {recordedBlob && !isRecording && (
                   <div className="flex flex-col gap-3 w-full">
-                    {/* Primary Action */}
                     <button onClick={() => submitDub('video')} className="w-full bg-[#E0B0FF] text-black h-16 rounded-[1.5rem] font-black text-lg shadow-[0_0_20px_rgba(224,176,255,0.3)] active:scale-[0.98] transition-transform">
                       PRODUCE MASTER VIDEO
                     </button>
-                    {/* Secondary Actions Side-by-Side */}
                     <div className="grid grid-cols-2 gap-3">
-                      <button onClick={() => setRecordedBlob(null)} className="w-full bg-white/5 text-white border border-white/10 h-14 rounded-[1.25rem] font-bold active:bg-white/10 transition-colors text-sm">
+                      <button onClick={() => {setRecordedBlob(null); setMicGranted(false);}} className="w-full bg-white/5 text-white border border-white/10 h-14 rounded-[1.25rem] font-bold active:bg-white/10 transition-colors text-sm">
                         DISCARD
                       </button>
                       <button onClick={() => submitDub('mp3')} className="w-full bg-white text-black h-14 rounded-[1.25rem] font-bold active:bg-zinc-200 transition-colors text-sm">
@@ -261,26 +259,30 @@ const App = () => {
             </motion.div>
           )}
 
-          {/* ⚙️ PROCESSING & RESULT */}
+          {/* ⚙️ PROCESSING */}
           {stage === 'processing' && (
              <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="w-16 h-16 border-4 border-[#E0B0FF]/20 border-t-[#E0B0FF] rounded-full animate-spin"></div>
+                <div className="w-16 h-16 relative">
+                  <div className="absolute inset-0 border-4 border-white/10 rounded-full"></div>
+                  <div className="absolute inset-0 border-4 border-[#E0B0FF] border-t-transparent rounded-full animate-spin"></div>
+                </div>
                 <p className="mt-6 text-xs tracking-widest text-[#E0B0FF] font-bold animate-pulse uppercase">Rendering Master...</p>
              </div>
           )}
 
+          {/* 🎬 RESULT */}
           {stage === 'result' && (
-            <div className="flex-1 flex flex-col items-center justify-center text-center">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex-1 flex flex-col items-center justify-center text-center">
               <div className="bg-white/[0.02] border border-white/10 p-10 rounded-[2.5rem] w-full max-w-md">
                 <h2 className="text-3xl font-black mb-8 text-white">Scene Mastered.</h2>
                 <a href={outputUrl} download className="block w-full bg-[#E0B0FF] text-black py-5 rounded-[1.5rem] font-black text-lg hover:shadow-[0_0_30px_rgba(224,176,255,0.4)] transition-all">
                   DOWNLOAD
                 </a>
-                <button onClick={() => window.location.reload()} className="mt-6 text-white/40 text-xs uppercase tracking-widest font-bold underline">
+                <button onClick={goHome} className="mt-6 text-white/40 text-xs uppercase tracking-widest font-bold underline hover:text-white transition-colors">
                   Close Project
                 </button>
               </div>
-            </div>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
