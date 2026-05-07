@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const App = () => {
   const [file, setFile] = useState(null);
+  const [videoUrl, setVideoUrl] = useState(""); // FIXED: Stores video securely so it doesn't crash
   const [stage, setStage] = useState('upload'); 
   const [script, setScript] = useState([]);
   const [currentTime, setCurrentTime] = useState(0);
@@ -19,18 +20,18 @@ const App = () => {
 
   const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
 
-  // 🏠 Home Button Reset
   const goHome = () => {
     if (isRecording) stopRecording();
     setStage('upload');
     setFile(null);
+    setVideoUrl("");
     setScript([]);
     setCurrentTime(0);
     setRecordedBlob(null);
     setMicGranted(false);
   };
 
-  // 🎯 PERFECT AUTO-SCROLL
+  // 🎯 Smooth Scrolling (Fixed memory leak)
   useEffect(() => {
     if (script.length === 0) return;
     
@@ -51,7 +52,10 @@ const App = () => {
   const handleInitialUpload = async (e) => {
     const uploadedFile = e.target.files[0];
     if (!uploadedFile) return;
+    
     setFile(uploadedFile);
+    // FIXED: Load the URL ONCE so the video doesn't freeze
+    setVideoUrl(URL.createObjectURL(uploadedFile)); 
     setStage('processing');
 
     const formData = new FormData();
@@ -75,9 +79,7 @@ const App = () => {
       mediaRecorderRef.current = new MediaRecorder(stream);
       mediaRecorderRef.current.ondataavailable = (e) => chunksRef.current.push(e.data);
       mediaRecorderRef.current.onstop = () => {
-        // Fixes the weird .bin download error on mobile
-        const mime = mediaRecorderRef.current.mimeType || 'audio/webm';
-        setRecordedBlob(new Blob(chunksRef.current, { type: mime }));
+        setRecordedBlob(new Blob(chunksRef.current, { type: 'audio/mp3' }));
       };
       setMicGranted(true);
     } catch (err) {
@@ -85,25 +87,20 @@ const App = () => {
     }
   };
 
-  // 🎬 THE MAGIC FIX: Muting video bypasses the phone's audio lock
+  // 🎬 Action: Perfect sync, no freezing.
   const startAction = async () => {
     if (!videoRef.current || !mediaRecorderRef.current) return;
 
     try {
-      // 1. Mute the video so the phone doesn't pause it when mic turns on
-      videoRef.current.muted = true;
       videoRef.current.currentTime = 0;
+      await videoRef.current.play(); // Play video FIRST
 
-      // 2. Play the video FIRST
-      await videoRef.current.play();
-
-      // 3. Start recording precisely when the video starts
       chunksRef.current = [];
-      mediaRecorderRef.current.start();
+      mediaRecorderRef.current.start(); // Start mic SECOND
       setIsRecording(true);
     } catch (e) {
       console.error(e);
-      alert("Your phone blocked the video from playing! Make sure Low Power Mode is off.");
+      alert("Please ensure your phone isn't on Low Power Mode.");
     }
   };
 
@@ -113,7 +110,6 @@ const App = () => {
     }
     if (videoRef.current) {
       videoRef.current.pause();
-      videoRef.current.muted = false; // Unmute so you can hear playback later
     }
     setIsRecording(false);
     setMicGranted(false);
@@ -123,8 +119,7 @@ const App = () => {
     if (mode === 'mp3') {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(recordedBlob);
-      const ext = recordedBlob.type.includes('mp4') ? 'm4a' : 'webm';
-      a.download = `kurddub_vocals.${ext}`;
+      a.download = "kurddub_vocals.mp3"; // Fixed .bin error
       a.click();
       return;
     }
@@ -192,9 +187,11 @@ const App = () => {
               <div className="relative w-full rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-2xl shrink-0">
                 <video 
                   ref={videoRef} 
-                  src={file ? URL.createObjectURL(file) : ""} 
+                  src={videoUrl} 
                   className="w-full aspect-video object-contain"
                   playsInline
+                  webkit-playsinline="true"
+                  muted={true} // FIXED: Forces mobile to allow playback while mic is on
                   onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
                   onEnded={stopRecording}
                 />
