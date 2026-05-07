@@ -30,11 +30,10 @@ const App = () => {
     setMicGranted(false);
   };
 
-  // 🎯 BULLETPROOF AUTO-SCROLL & HIGHLIGHTING
+  // 🎯 PERFECT AUTO-SCROLL
   useEffect(() => {
     if (script.length === 0) return;
     
-    // Finds the current word and keeps it highlighted until the next word starts (fixes flickering)
     const activeIndex = script.findIndex((item, i) => {
       const nextItem = script[i + 1];
       return currentTime >= item.start && (!nextItem || currentTime < nextItem.start);
@@ -65,35 +64,47 @@ const App = () => {
       setJobId(data.job_id);
       setStage('recording');
     } catch (err) {
-      alert("KurdDub Error: Couldn't generate the script.");
+      alert("KurdDub Error: Couldn't extract dialogue. Try another video.");
       setStage('upload');
     }
   };
 
-  // 🚀 STEP 1: Get Mic Permission (Separated to satisfy mobile browsers)
   const prepareMic = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       mediaRecorderRef.current.ondataavailable = (e) => chunksRef.current.push(e.data);
-      mediaRecorderRef.current.onstop = () => setRecordedBlob(new Blob(chunksRef.current, { type: 'audio/mp3' }));
+      mediaRecorderRef.current.onstop = () => {
+        // Fixes the weird .bin download error on mobile
+        const mime = mediaRecorderRef.current.mimeType || 'audio/webm';
+        setRecordedBlob(new Blob(chunksRef.current, { type: mime }));
+      };
       setMicGranted(true);
     } catch (err) {
       alert("Microphone access is required for KurdDub!");
     }
   };
 
-  // 🎬 STEP 2: Instant Action (Bypasses the "Frozen Video" block perfectly)
-  const startAction = () => {
-    chunksRef.current = [];
-    mediaRecorderRef.current.start();
-    
-    if (videoRef.current) {
-      videoRef.current.muted = false;
+  // 🎬 THE MAGIC FIX: Muting video bypasses the phone's audio lock
+  const startAction = async () => {
+    if (!videoRef.current || !mediaRecorderRef.current) return;
+
+    try {
+      // 1. Mute the video so the phone doesn't pause it when mic turns on
+      videoRef.current.muted = true;
       videoRef.current.currentTime = 0;
-      videoRef.current.play().catch(e => console.error("Playback blocked:", e));
+
+      // 2. Play the video FIRST
+      await videoRef.current.play();
+
+      // 3. Start recording precisely when the video starts
+      chunksRef.current = [];
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+    } catch (e) {
+      console.error(e);
+      alert("Your phone blocked the video from playing! Make sure Low Power Mode is off.");
     }
-    setIsRecording(true);
   };
 
   const stopRecording = () => {
@@ -102,19 +113,22 @@ const App = () => {
     }
     if (videoRef.current) {
       videoRef.current.pause();
+      videoRef.current.muted = false; // Unmute so you can hear playback later
     }
     setIsRecording(false);
-    setMicGranted(false); // Reset so they have to tap "Action" again for a retry
+    setMicGranted(false);
   };
 
   const submitDub = async (mode) => {
     if (mode === 'mp3') {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(recordedBlob);
-      a.download = "kurddub_vocals.mp3";
+      const ext = recordedBlob.type.includes('mp4') ? 'm4a' : 'webm';
+      a.download = `kurddub_vocals.${ext}`;
       a.click();
       return;
     }
+    
     setStage('processing');
     const formData = new FormData();
     formData.append("voice", recordedBlob);
@@ -125,7 +139,7 @@ const App = () => {
       setOutputUrl(`${API_URL}/download/${jobId}`);
       setStage('result');
     } catch (e) {
-      alert("Failed to mix audio.");
+      alert("Failed to mix audio on the server.");
       setStage('recording');
     }
   };
@@ -139,7 +153,7 @@ const App = () => {
 
       <div className="max-w-4xl mx-auto px-5 py-6 relative z-10 flex flex-col h-screen">
         
-        {/* ✨ Header (Now completely clickable to go Home) */}
+        {/* ✨ Header */}
         <header className="flex justify-between items-center mb-6 shrink-0">
           <button onClick={goHome} className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white to-[#E0B0FF] hover:scale-105 transition-transform origin-left">
             Kurd<span className="italic">Dub</span>
@@ -181,7 +195,6 @@ const App = () => {
                   src={file ? URL.createObjectURL(file) : ""} 
                   className="w-full aspect-video object-contain"
                   playsInline
-                  webkit-playsinline="true"
                   onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
                   onEnded={stopRecording}
                 />
@@ -195,7 +208,6 @@ const App = () => {
                 <div className="absolute inset-0 overflow-y-auto px-5 py-24 scroll-smooth custom-scrollbar">
                   <p className="text-center text-3xl font-bold leading-relaxed flex flex-wrap justify-center gap-x-2 gap-y-3">
                     {script.map((item, i) => {
-                      // Logic ensures the word stays highlighted until the exact moment the next word starts
                       const nextStart = script[i + 1] ? script[i + 1].start : item.end + 1;
                       const isActive = currentTime >= item.start && currentTime < nextStart;
                       
@@ -217,17 +229,15 @@ const App = () => {
                 </div>
               </div>
 
-              {/* 🎛️ NEW SLEEK BUTTON LAYOUT */}
+              {/* 🎛️ BUTTON CONTROLS */}
               <div className="shrink-0 pt-2 pb-4">
                 
-                {/* 1. Request Mic */}
                 {!isRecording && !recordedBlob && !micGranted && (
                   <button onClick={prepareMic} className="w-full bg-white/10 text-white border border-white/20 h-16 rounded-[1.5rem] font-bold text-lg hover:bg-white/20 transition-all">
                     1. ENABLE MICROPHONE
                   </button>
                 )}
 
-                {/* 2. Instant Action (Plays Video immediately) */}
                 {!isRecording && !recordedBlob && micGranted && (
                   <button onClick={startAction} className="w-full bg-[#E0B0FF] text-black h-16 rounded-[1.5rem] font-black text-xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_30px_rgba(224,176,255,0.4)]">
                     2. ACTION! 🎬
@@ -259,18 +269,20 @@ const App = () => {
             </motion.div>
           )}
 
-          {/* ⚙️ PROCESSING */}
+          {/* ⚙️ PROCESSING STAGE */}
           {stage === 'processing' && (
              <div className="flex-1 flex flex-col items-center justify-center">
                 <div className="w-16 h-16 relative">
                   <div className="absolute inset-0 border-4 border-white/10 rounded-full"></div>
                   <div className="absolute inset-0 border-4 border-[#E0B0FF] border-t-transparent rounded-full animate-spin"></div>
                 </div>
-                <p className="mt-6 text-xs tracking-widest text-[#E0B0FF] font-bold animate-pulse uppercase">Rendering Master...</p>
+                <p className="mt-6 text-xs tracking-widest text-[#E0B0FF] font-bold animate-pulse uppercase">
+                  {script.length === 0 ? "Analyzing Dialogue..." : "Rendering Master..."}
+                </p>
              </div>
           )}
 
-          {/* 🎬 RESULT */}
+          {/* 🎬 RESULT STAGE */}
           {stage === 'result' && (
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex-1 flex flex-col items-center justify-center text-center">
               <div className="bg-white/[0.02] border border-white/10 p-10 rounded-[2.5rem] w-full max-w-md">
