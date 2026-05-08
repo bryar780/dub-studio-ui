@@ -13,9 +13,10 @@ const App = () => {
   const [outputUrl, setOutputUrl] = useState(null);
   const [recordedBlob, setRecordedBlob] = useState(null);
 
-  // New Translation States
+  // Translation & Direction States
   const [sourceLang, setSourceLang] = useState("auto");
   const [targetLang, setTargetLang] = useState("none");
+  const [scriptDirection, setScriptDirection] = useState("ltr"); // NEW: Controls LTR vs RTL
 
   const videoRef = useRef(null);
   const wordRefs = useRef([]);
@@ -59,6 +60,13 @@ const App = () => {
     setVideoUrl(URL.createObjectURL(uploadedFile)); 
     setStage('processing');
 
+    // Automatically set layout based on selected language
+    if (targetLang === 'ckb' || targetLang === 'ar') {
+      setScriptDirection('rtl');
+    } else {
+      setScriptDirection('ltr');
+    }
+
     const formData = new FormData();
     formData.append("file", uploadedFile);
     formData.append("source_lang", sourceLang);
@@ -99,7 +107,6 @@ const App = () => {
   const startAction = async () => {
     if (!videoRef.current || !mediaRecorderRef.current) return;
     try {
-      // FORCE MUTE: Stops video audio from bleeding into your mic
       videoRef.current.muted = true;
       videoRef.current.currentTime = 0;
       await videoRef.current.play(); 
@@ -143,6 +150,11 @@ const App = () => {
     }
   };
 
+  // Toggle layout between Left-to-Right and Right-to-Left
+  const toggleDirection = () => {
+    setScriptDirection(prev => prev === 'ltr' ? 'rtl' : 'ltr');
+  };
+
   return (
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-[#E0B0FF]/30 overflow-hidden relative pb-10">
       <div className="fixed top-[-20%] left-[-10%] w-[50vw] h-[50vw] bg-[#E0B0FF]/10 blur-[120px] rounded-full pointer-events-none" />
@@ -166,7 +178,6 @@ const App = () => {
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex-1 flex flex-col items-center justify-center">
               <div className="relative border border-white/10 bg-black/40 backdrop-blur-2xl rounded-[2.5rem] p-10 w-full hover:border-[#E0B0FF]/40 transition-colors shadow-2xl">
                 
-                {/* 🌍 TRANSLATION SETTINGS */}
                 <div className="grid grid-cols-2 gap-4 mb-8">
                   <div>
                     <label className="block text-xs font-bold text-white/50 uppercase tracking-widest mb-2">Video Language</label>
@@ -212,18 +223,32 @@ const App = () => {
                   className="w-full aspect-video object-contain"
                   playsInline
                   webkit-playsinline="true"
-                  muted={true} // FORCED MUTE: Prevents video echo in your recording
+                  muted={true} 
                   onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
                   onEnded={stopRecording}
                 />
               </div>
 
+              {/* 📜 DYNAMIC TELEPROMPTER */}
               <div className="flex-1 relative rounded-[2rem] overflow-hidden bg-white/[0.02] border border-white/10">
-                <div className="absolute top-0 left-0 w-full h-8 bg-gradient-to-b from-[#050505] to-transparent z-10" />
-                <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-[#050505] to-transparent z-10" />
                 
-                <div className="absolute inset-0 overflow-y-auto px-5 py-24 scroll-smooth custom-scrollbar">
-                  <p className="text-center text-3xl font-bold leading-relaxed flex flex-wrap justify-center gap-x-2 gap-y-3">
+                {/* 🔄 LAYOUT TOGGLE BUTTON */}
+                <button 
+                  onClick={toggleDirection}
+                  className="absolute top-4 right-4 z-20 bg-white/10 hover:bg-white/20 text-white/70 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest backdrop-blur-md transition-colors border border-white/10 shadow-lg"
+                >
+                  Layout: {scriptDirection.toUpperCase()} ⮂
+                </button>
+
+                <div className="absolute top-0 left-0 w-full h-8 bg-gradient-to-b from-[#050505] to-transparent z-10 pointer-events-none" />
+                <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-[#050505] to-transparent z-10 pointer-events-none" />
+                
+                <div className="absolute inset-0 overflow-y-auto px-5 py-20 scroll-smooth custom-scrollbar">
+                  {/* DIRECTS THE TEXT FLOW (LTR vs RTL) */}
+                  <p 
+                    className="text-center text-3xl font-bold leading-relaxed flex flex-wrap justify-center gap-x-2 gap-y-3"
+                    dir={scriptDirection}
+                  >
                     {script.map((item, i) => {
                       const nextStart = script[i + 1] ? script[i + 1].start : item.end + 1;
                       const isActive = currentTime >= item.start && currentTime < nextStart;
