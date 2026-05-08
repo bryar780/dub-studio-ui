@@ -13,6 +13,10 @@ const App = () => {
   const [outputUrl, setOutputUrl] = useState(null);
   const [recordedBlob, setRecordedBlob] = useState(null);
 
+  // New Translation States
+  const [sourceLang, setSourceLang] = useState("auto");
+  const [targetLang, setTargetLang] = useState("none");
+
   const videoRef = useRef(null);
   const wordRefs = useRef([]);
   const mediaRecorderRef = useRef(null);
@@ -42,6 +46,7 @@ const App = () => {
       wordRefs.current[activeIndex].scrollIntoView({
         behavior: 'smooth',
         block: 'center',
+        inline: 'center'
       });
     }
   }, [currentTime, script]);
@@ -56,6 +61,8 @@ const App = () => {
 
     const formData = new FormData();
     formData.append("file", uploadedFile);
+    formData.append("source_lang", sourceLang);
+    formData.append("target_lang", targetLang);
 
     try {
       const res = await fetch(`${API_URL}/prepare`, { method: "POST", body: formData });
@@ -71,19 +78,14 @@ const App = () => {
 
   const prepareMic = async () => {
     try {
-      // 🎙️ STUDIO QUALITY SETTINGS: Turns off robotic phone filters
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: false,
           autoGainControl: false,
           noiseSuppression: false,
-          sampleRate: 48000,
-          channelCount: 2
         } 
       });
-      
-      // Forces highest possible recording bitrate
-      mediaRecorderRef.current = new MediaRecorder(stream, { audioBitsPerSecond: 256000 });
+      mediaRecorderRef.current = new MediaRecorder(stream);
       mediaRecorderRef.current.ondataavailable = (e) => chunksRef.current.push(e.data);
       mediaRecorderRef.current.onstop = () => {
         setRecordedBlob(new Blob(chunksRef.current, { type: 'audio/mp3' }));
@@ -97,8 +99,11 @@ const App = () => {
   const startAction = async () => {
     if (!videoRef.current || !mediaRecorderRef.current) return;
     try {
+      // FORCE MUTE: Stops video audio from bleeding into your mic
+      videoRef.current.muted = true;
       videoRef.current.currentTime = 0;
       await videoRef.current.play(); 
+      
       chunksRef.current = [];
       mediaRecorderRef.current.start(); 
       setIsRecording(true);
@@ -109,10 +114,7 @@ const App = () => {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.muted = false;
-    }
+    if (videoRef.current) videoRef.current.pause();
     setIsRecording(false);
     setMicGranted(false);
   };
@@ -162,15 +164,40 @@ const App = () => {
         <AnimatePresence mode="wait">
           {stage === 'upload' && (
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex-1 flex flex-col items-center justify-center">
-              <div className="relative border border-white/10 bg-black/40 backdrop-blur-2xl rounded-[2.5rem] p-10 w-full text-center hover:border-[#E0B0FF]/40 transition-colors shadow-2xl">
-                <input type="file" onChange={handleInitialUpload} className="hidden" id="v-file" accept="video/*" />
-                <label htmlFor="v-file" className="cursor-pointer block">
-                  <div className="w-20 h-20 bg-[#E0B0FF]/10 rounded-[1.5rem] flex items-center justify-center mx-auto mb-6 transition-transform hover:scale-105 hover:bg-[#E0B0FF]/20">
-                    <svg className="w-8 h-8 text-[#E0B0FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+              <div className="relative border border-white/10 bg-black/40 backdrop-blur-2xl rounded-[2.5rem] p-10 w-full hover:border-[#E0B0FF]/40 transition-colors shadow-2xl">
+                
+                {/* 🌍 TRANSLATION SETTINGS */}
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                  <div>
+                    <label className="block text-xs font-bold text-white/50 uppercase tracking-widest mb-2">Video Language</label>
+                    <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#E0B0FF] appearance-none">
+                      <option value="auto">Auto-Detect</option>
+                      <option value="en">English</option>
+                      <option value="ar">Arabic</option>
+                    </select>
                   </div>
-                  <h2 className="text-2xl font-bold mb-2">Import Scene</h2>
-                  <p className="text-white/40 text-sm">Upload video to extract dialogue</p>
-                </label>
+                  <div>
+                    <label className="block text-xs font-bold text-[#E0B0FF]/70 uppercase tracking-widest mb-2">Translate To</label>
+                    <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="w-full bg-[#E0B0FF]/10 border border-[#E0B0FF]/30 rounded-xl px-4 py-3 text-[#E0B0FF] font-bold focus:outline-none focus:border-[#E0B0FF] appearance-none">
+                      <option value="none">No Translation</option>
+                      <option value="ckb">Kurdish (Sorani)</option>
+                      <option value="ku">Kurdish (Kurmanji)</option>
+                      <option value="en">English</option>
+                      <option value="ar">Arabic</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="text-center border-t border-white/10 pt-8">
+                  <input type="file" onChange={handleInitialUpload} className="hidden" id="v-file" accept="video/*" />
+                  <label htmlFor="v-file" className="cursor-pointer block">
+                    <div className="w-20 h-20 bg-[#E0B0FF]/10 rounded-[1.5rem] flex items-center justify-center mx-auto mb-6 transition-transform hover:scale-105 hover:bg-[#E0B0FF]/20">
+                      <svg className="w-8 h-8 text-[#E0B0FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                    </div>
+                    <h2 className="text-2xl font-bold mb-2">Import Scene</h2>
+                    <p className="text-white/40 text-sm">Upload video to generate script</p>
+                  </label>
+                </div>
               </div>
             </motion.div>
           )}
@@ -185,38 +212,37 @@ const App = () => {
                   className="w-full aspect-video object-contain"
                   playsInline
                   webkit-playsinline="true"
-                  muted={true} 
+                  muted={true} // FORCED MUTE: Prevents video echo in your recording
                   onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
                   onEnded={stopRecording}
                 />
               </div>
 
-              {/* 📜 NEW TRANSLATED TELEPROMPTER LAYOUT */}
               <div className="flex-1 relative rounded-[2rem] overflow-hidden bg-white/[0.02] border border-white/10">
                 <div className="absolute top-0 left-0 w-full h-8 bg-gradient-to-b from-[#050505] to-transparent z-10" />
                 <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-[#050505] to-transparent z-10" />
                 
                 <div className="absolute inset-0 overflow-y-auto px-5 py-24 scroll-smooth custom-scrollbar">
-                  <div className="flex flex-col gap-4 max-w-lg mx-auto">
+                  <p className="text-center text-3xl font-bold leading-relaxed flex flex-wrap justify-center gap-x-2 gap-y-3">
                     {script.map((item, i) => {
                       const nextStart = script[i + 1] ? script[i + 1].start : item.end + 1;
                       const isActive = currentTime >= item.start && currentTime < nextStart;
                       
                       return (
-                        <div 
+                        <span 
                           key={i} 
                           ref={el => { if (el) wordRefs.current[i] = el; }}
-                          className={`transition-all duration-300 rounded-2xl px-6 py-4 text-center text-2xl md:text-3xl font-bold leading-tight
+                          className={`transition-all duration-200 rounded-xl px-2 py-1 
                             ${isActive 
-                              ? 'bg-[#E0B0FF] text-black shadow-[0_0_30px_rgba(224,176,255,0.4)] scale-105 z-10' 
-                              : currentTime > item.end ? 'text-white/20' : 'text-white/60 bg-white/5'
+                              ? 'bg-[#E0B0FF] text-black shadow-[0_0_20px_rgba(224,176,255,0.5)] scale-[1.15] z-10' 
+                              : currentTime > item.end ? 'text-white/30' : 'text-white/70'
                             }`}
                         >
                           {item.word}
-                        </div>
+                        </span>
                       );
                     })}
-                  </div>
+                  </p>
                 </div>
               </div>
 
