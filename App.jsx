@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const App = () => {
   const [file, setFile] = useState(null);
-  const [videoUrl, setVideoUrl] = useState(""); 
+  const [mediaUrl, setMediaUrl] = useState(""); 
+  const [isAudioMode, setIsAudioMode] = useState(false); // NEW: Tracks if upload is MP3
   const [stage, setStage] = useState('upload'); 
   const [script, setScript] = useState([]);
   const [currentTime, setCurrentTime] = useState(0);
@@ -13,12 +14,11 @@ const App = () => {
   const [outputUrl, setOutputUrl] = useState(null);
   const [recordedBlob, setRecordedBlob] = useState(null);
 
-  // Translation & Direction States
   const [sourceLang, setSourceLang] = useState("auto");
   const [targetLang, setTargetLang] = useState("none");
-  const [scriptDirection, setScriptDirection] = useState("ltr"); // NEW: Controls LTR vs RTL
+  const [scriptDirection, setScriptDirection] = useState("ltr");
 
-  const videoRef = useRef(null);
+  const mediaRef = useRef(null);
   const wordRefs = useRef([]);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -29,7 +29,8 @@ const App = () => {
     if (isRecording) stopRecording();
     setStage('upload');
     setFile(null);
-    setVideoUrl("");
+    setMediaUrl("");
+    setIsAudioMode(false);
     setScript([]);
     setCurrentTime(0);
     setRecordedBlob(null);
@@ -56,11 +57,14 @@ const App = () => {
     const uploadedFile = e.target.files[0];
     if (!uploadedFile) return;
     
+    // Checks if the file is an audio file (like MP3) or a Video
+    const isAudio = uploadedFile.type.startsWith('audio/');
+    setIsAudioMode(isAudio);
+    
     setFile(uploadedFile);
-    setVideoUrl(URL.createObjectURL(uploadedFile)); 
+    setMediaUrl(URL.createObjectURL(uploadedFile)); 
     setStage('processing');
 
-    // Automatically set layout based on selected language
     if (targetLang === 'ckb' || targetLang === 'ar') {
       setScriptDirection('rtl');
     } else {
@@ -105,11 +109,11 @@ const App = () => {
   };
 
   const startAction = async () => {
-    if (!videoRef.current || !mediaRecorderRef.current) return;
+    if (!mediaRef.current || !mediaRecorderRef.current) return;
     try {
-      videoRef.current.muted = true;
-      videoRef.current.currentTime = 0;
-      await videoRef.current.play(); 
+      mediaRef.current.muted = true;
+      mediaRef.current.currentTime = 0;
+      await mediaRef.current.play(); 
       
       chunksRef.current = [];
       mediaRecorderRef.current.start(); 
@@ -121,16 +125,16 @@ const App = () => {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
-    if (videoRef.current) videoRef.current.pause();
+    if (mediaRef.current) mediaRef.current.pause();
     setIsRecording(false);
     setMicGranted(false);
   };
 
   const submitDub = async (mode) => {
-    if (mode === 'mp3') {
+    if (mode === 'vocals_only') {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(recordedBlob);
-      a.download = "kurddub_vocals.mp3"; 
+      a.download = "kurddub_raw_vocals.mp3"; 
       a.click();
       return;
     }
@@ -150,7 +154,6 @@ const App = () => {
     }
   };
 
-  // Toggle layout between Left-to-Right and Right-to-Left
   const toggleDirection = () => {
     setScriptDirection(prev => prev === 'ltr' ? 'rtl' : 'ltr');
   };
@@ -180,10 +183,11 @@ const App = () => {
                 
                 <div className="grid grid-cols-2 gap-4 mb-8">
                   <div>
-                    <label className="block text-xs font-bold text-white/50 uppercase tracking-widest mb-2">Video Language</label>
+                    <label className="block text-xs font-bold text-white/50 uppercase tracking-widest mb-2">Original Language</label>
                     <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#E0B0FF] appearance-none">
                       <option value="auto">Auto-Detect</option>
                       <option value="en">English</option>
+                      <option value="ja">Japanese</option>
                       <option value="ar">Arabic</option>
                     </select>
                   </div>
@@ -193,6 +197,7 @@ const App = () => {
                       <option value="none">No Translation</option>
                       <option value="ckb">Kurdish (Sorani)</option>
                       <option value="ku">Kurdish (Kurmanji)</option>
+                      <option value="ja">Japanese</option>
                       <option value="en">English</option>
                       <option value="ar">Arabic</option>
                     </select>
@@ -200,13 +205,14 @@ const App = () => {
                 </div>
 
                 <div className="text-center border-t border-white/10 pt-8">
-                  <input type="file" onChange={handleInitialUpload} className="hidden" id="v-file" accept="video/*" />
+                  {/* NOW ACCEPTS BOTH AUDIO AND VIDEO */}
+                  <input type="file" onChange={handleInitialUpload} className="hidden" id="v-file" accept="video/*,audio/*" />
                   <label htmlFor="v-file" className="cursor-pointer block">
                     <div className="w-20 h-20 bg-[#E0B0FF]/10 rounded-[1.5rem] flex items-center justify-center mx-auto mb-6 transition-transform hover:scale-105 hover:bg-[#E0B0FF]/20">
                       <svg className="w-8 h-8 text-[#E0B0FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
                     </div>
-                    <h2 className="text-2xl font-bold mb-2">Import Scene</h2>
-                    <p className="text-white/40 text-sm">Upload video to generate script</p>
+                    <h2 className="text-2xl font-bold mb-2">Import Scene / Audio</h2>
+                    <p className="text-white/40 text-sm">Upload Video or MP3 to generate script</p>
                   </label>
                 </div>
               </div>
@@ -216,23 +222,39 @@ const App = () => {
           {stage === 'recording' && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex-1 flex flex-col gap-4 h-full">
               
-              <div className="relative w-full rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-2xl shrink-0">
-                <video 
-                  ref={videoRef} 
-                  src={videoUrl} 
-                  className="w-full aspect-video object-contain"
-                  playsInline
-                  webkit-playsinline="true"
-                  muted={true} 
-                  onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
-                  onEnded={stopRecording}
-                />
+              <div className={`relative w-full rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-2xl shrink-0 ${isAudioMode ? 'h-24 flex items-center justify-center bg-gradient-to-r from-purple-900/20 to-black' : ''}`}>
+                {/* DYNAMIC PLAYER: Shows Video player OR Audio visualizer area */}
+                {isAudioMode ? (
+                  <audio 
+                    ref={mediaRef} 
+                    src={mediaUrl} 
+                    muted={true}
+                    onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
+                    onEnded={stopRecording}
+                    className="hidden"
+                  />
+                ) : (
+                  <video 
+                    ref={mediaRef} 
+                    src={mediaUrl} 
+                    className="w-full aspect-video object-contain"
+                    playsInline
+                    webkit-playsinline="true"
+                    muted={true} 
+                    onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
+                    onEnded={stopRecording}
+                  />
+                )}
+
+                {isAudioMode && (
+                  <div className="flex items-center gap-2 text-[#E0B0FF]/50 font-bold tracking-widest text-sm uppercase">
+                    <div className="w-3 h-3 bg-[#E0B0FF]/50 rounded-full animate-ping" />
+                    Audio Track Active
+                  </div>
+                )}
               </div>
 
-              {/* 📜 DYNAMIC TELEPROMPTER */}
               <div className="flex-1 relative rounded-[2rem] overflow-hidden bg-white/[0.02] border border-white/10">
-                
-                {/* 🔄 LAYOUT TOGGLE BUTTON */}
                 <button 
                   onClick={toggleDirection}
                   className="absolute top-4 right-4 z-20 bg-white/10 hover:bg-white/20 text-white/70 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest backdrop-blur-md transition-colors border border-white/10 shadow-lg"
@@ -244,11 +266,7 @@ const App = () => {
                 <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-[#050505] to-transparent z-10 pointer-events-none" />
                 
                 <div className="absolute inset-0 overflow-y-auto px-5 py-20 scroll-smooth custom-scrollbar">
-                  {/* DIRECTS THE TEXT FLOW (LTR vs RTL) */}
-                  <p 
-                    className="text-center text-3xl font-bold leading-relaxed flex flex-wrap justify-center gap-x-2 gap-y-3"
-                    dir={scriptDirection}
-                  >
+                  <p className="text-center text-3xl font-bold leading-relaxed flex flex-wrap justify-center gap-x-2 gap-y-3" dir={scriptDirection}>
                     {script.map((item, i) => {
                       const nextStart = script[i + 1] ? script[i + 1].start : item.end + 1;
                       const isActive = currentTime >= item.start && currentTime < nextStart;
@@ -292,15 +310,15 @@ const App = () => {
 
                 {recordedBlob && !isRecording && (
                   <div className="flex flex-col gap-3 w-full">
-                    <button onClick={() => submitDub('video')} className="w-full bg-[#E0B0FF] text-black h-16 rounded-[1.5rem] font-black text-lg shadow-[0_0_20px_rgba(224,176,255,0.3)] active:scale-[0.98] transition-transform">
-                      PRODUCE MASTER VIDEO
+                    <button onClick={() => submitDub('master')} className="w-full bg-[#E0B0FF] text-black h-16 rounded-[1.5rem] font-black text-lg shadow-[0_0_20px_rgba(224,176,255,0.3)] active:scale-[0.98] transition-transform uppercase">
+                      {isAudioMode ? "PRODUCE MASTER AUDIO (MP3)" : "PRODUCE MASTER VIDEO (MP4)"}
                     </button>
                     <div className="grid grid-cols-2 gap-3">
                       <button onClick={() => {setRecordedBlob(null); setMicGranted(false);}} className="w-full bg-white/5 text-white border border-white/10 h-14 rounded-[1.25rem] font-bold active:bg-white/10 transition-colors text-sm">
                         DISCARD
                       </button>
-                      <button onClick={() => submitDub('mp3')} className="w-full bg-white text-black h-14 rounded-[1.25rem] font-bold active:bg-zinc-200 transition-colors text-sm">
-                        SAVE VOCALS (MP3)
+                      <button onClick={() => submitDub('vocals_only')} className="w-full bg-white text-black h-14 rounded-[1.25rem] font-bold active:bg-zinc-200 transition-colors text-sm">
+                        SAVE RAW VOCALS
                       </button>
                     </div>
                   </div>
@@ -324,7 +342,7 @@ const App = () => {
           {stage === 'result' && (
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex-1 flex flex-col items-center justify-center text-center">
               <div className="bg-white/[0.02] border border-white/10 p-10 rounded-[2.5rem] w-full max-w-md">
-                <h2 className="text-3xl font-black mb-8 text-white">Scene Mastered.</h2>
+                <h2 className="text-3xl font-black mb-8 text-white">Project Mastered.</h2>
                 <a href={outputUrl} download className="block w-full bg-[#E0B0FF] text-black py-5 rounded-[1.5rem] font-black text-lg hover:shadow-[0_0_30px_rgba(224,176,255,0.4)] transition-all">
                   DOWNLOAD
                 </a>
