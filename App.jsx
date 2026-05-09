@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 const App = () => {
   const [file, setFile] = useState(null);
   const [mediaUrl, setMediaUrl] = useState(""); 
-  const [isAudioMode, setIsAudioMode] = useState(false); // NEW: Tracks if upload is MP3
+  const [isAudioMode, setIsAudioMode] = useState(false);
   const [stage, setStage] = useState('upload'); 
   const [script, setScript] = useState([]);
   const [currentTime, setCurrentTime] = useState(0);
@@ -13,7 +13,6 @@ const App = () => {
   const [jobId, setJobId] = useState(null);
   const [outputUrl, setOutputUrl] = useState(null);
   const [recordedBlob, setRecordedBlob] = useState(null);
-
   const [sourceLang, setSourceLang] = useState("auto");
   const [targetLang, setTargetLang] = useState("none");
   const [scriptDirection, setScriptDirection] = useState("ltr");
@@ -25,51 +24,25 @@ const App = () => {
 
   const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
 
-  const goHome = () => {
-    if (isRecording) stopRecording();
-    setStage('upload');
-    setFile(null);
-    setMediaUrl("");
-    setIsAudioMode(false);
-    setScript([]);
-    setCurrentTime(0);
-    setRecordedBlob(null);
-    setMicGranted(false);
-  };
-
   useEffect(() => {
     if (script.length === 0) return;
     const activeIndex = script.findIndex((item, i) => {
       const nextItem = script[i + 1];
       return currentTime >= item.start && (!nextItem || currentTime < nextItem.start);
     });
-
     if (activeIndex !== -1 && wordRefs.current[activeIndex]) {
-      wordRefs.current[activeIndex].scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-        inline: 'center'
-      });
+      wordRefs.current[activeIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [currentTime, script]);
 
   const handleInitialUpload = async (e) => {
     const uploadedFile = e.target.files[0];
     if (!uploadedFile) return;
-    
-    // Checks if the file is an audio file (like MP3) or a Video
-    const isAudio = uploadedFile.type.startsWith('audio/');
-    setIsAudioMode(isAudio);
-    
+    setIsAudioMode(uploadedFile.type.startsWith('audio/'));
     setFile(uploadedFile);
     setMediaUrl(URL.createObjectURL(uploadedFile)); 
     setStage('processing');
-
-    if (targetLang === 'ckb' || targetLang === 'ar') {
-      setScriptDirection('rtl');
-    } else {
-      setScriptDirection('ltr');
-    }
+    setScriptDirection((targetLang === 'ckb' || targetLang === 'ar') ? 'rtl' : 'ltr');
 
     const formData = new FormData();
     formData.append("file", uploadedFile);
@@ -83,277 +56,126 @@ const App = () => {
       setJobId(data.job_id);
       setStage('recording');
     } catch (err) {
-      alert("KurdDub Error: Couldn't extract dialogue.");
+      alert("Error processing media.");
       setStage('upload');
     }
   };
 
   const prepareMic = async () => {
     try {
+      // HIGH FIDELITY CAPTURE
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: false,
-          autoGainControl: false,
-          noiseSuppression: false,
-        } 
+        audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false, sampleRate: 48000 } 
       });
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      const options = { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 256000 };
+      mediaRecorderRef.current = new MediaRecorder(stream, options);
       mediaRecorderRef.current.ondataavailable = (e) => chunksRef.current.push(e.data);
-      mediaRecorderRef.current.onstop = () => {
-        setRecordedBlob(new Blob(chunksRef.current, { type: 'audio/mp3' }));
-      };
+      mediaRecorderRef.current.onstop = () => setRecordedBlob(new Blob(chunksRef.current, { type: 'audio/webm' }));
       setMicGranted(true);
-    } catch (err) {
-      alert("Microphone access is required for KurdDub!");
-    }
+    } catch (err) { alert("Mic access denied."); }
   };
 
   const startAction = async () => {
-    if (!mediaRef.current || !mediaRecorderRef.current) return;
-    try {
-      mediaRef.current.muted = true;
-      mediaRef.current.currentTime = 0;
-      await mediaRef.current.play(); 
-      
-      chunksRef.current = [];
-      mediaRecorderRef.current.start(); 
-      setIsRecording(true);
-    } catch (e) {
-      alert("Playback blocked. Check phone settings.");
-    }
+    mediaRef.current.muted = true;
+    mediaRef.current.currentTime = 0;
+    await mediaRef.current.play(); 
+    chunksRef.current = [];
+    mediaRecorderRef.current.start(); 
+    setIsRecording(true);
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
-    if (mediaRef.current) mediaRef.current.pause();
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+    mediaRef.current?.pause();
     setIsRecording(false);
-    setMicGranted(false);
   };
 
   const submitDub = async (mode) => {
-    if (mode === 'vocals_only') {
+    if (mode === 'raw') {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(recordedBlob);
-      a.download = "kurddub_raw_vocals.mp3"; 
-      a.click();
+      a.download = "vocals.webm"; a.click();
       return;
     }
-    
     setStage('processing');
     const formData = new FormData();
     formData.append("voice", recordedBlob);
     formData.append("job_id", jobId);
-    
-    try {
-      await fetch(`${API_URL}/merge`, { method: "POST", body: formData });
-      setOutputUrl(`${API_URL}/download/${jobId}`);
-      setStage('result');
-    } catch (e) {
-      alert("Failed to mix audio.");
-      setStage('recording');
-    }
-  };
-
-  const toggleDirection = () => {
-    setScriptDirection(prev => prev === 'ltr' ? 'rtl' : 'ltr');
+    await fetch(`${API_URL}/merge`, { method: "POST", body: formData });
+    setOutputUrl(`${API_URL}/download/${jobId}`);
+    setStage('result');
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-[#E0B0FF]/30 overflow-hidden relative pb-10">
-      <div className="fixed top-[-20%] left-[-10%] w-[50vw] h-[50vw] bg-[#E0B0FF]/10 blur-[120px] rounded-full pointer-events-none" />
-      <div className="fixed bottom-[-20%] right-[-10%] w-[50vw] h-[50vw] bg-purple-900/10 blur-[120px] rounded-full pointer-events-none" />
+    <div className="min-h-screen bg-[#050505] text-white p-5 flex flex-col items-center">
+      <header className="w-full max-w-4xl flex justify-between mb-10">
+        <h1 className="text-2xl font-black italic">KurdDub <span className="text-[#E0B0FF]">Pro</span></h1>
+        {isRecording && <span className="text-red-500 animate-pulse font-bold">● RECORDING</span>}
+      </header>
 
-      <div className="max-w-4xl mx-auto px-5 py-6 relative z-10 flex flex-col h-screen">
-        <header className="flex justify-between items-center mb-6 shrink-0">
-          <button onClick={goHome} className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white to-[#E0B0FF] hover:scale-105 transition-transform origin-left">
-            Kurd<span className="italic">Dub</span>
-          </button>
-          <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-full backdrop-blur-md">
-            <div className={`w-2 h-2 rounded-full ${isRecording ? 'bg-red-500 animate-pulse shadow-[0_0_10px_red]' : 'bg-[#E0B0FF] shadow-[0_0_10px_#E0B0FF]'}`} />
-            <span className="text-[10px] font-bold tracking-widest uppercase opacity-80">
-              {isRecording ? "On Air" : "Standby"}
-            </span>
+      <AnimatePresence mode="wait">
+        {stage === 'upload' && (
+          <div className="bg-white/5 p-10 rounded-3xl border border-white/10 w-full max-w-xl">
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <select value={sourceLang} onChange={e => setSourceLang(e.target.value)} className="bg-black p-3 rounded-xl border border-white/10">
+                <option value="auto">Auto-Detect</option>
+                <option value="ja">Japanese</option>
+                <option value="en">English</option>
+              </select>
+              <select value={targetLang} onChange={e => setTargetLang(e.target.value)} className="bg-black p-3 rounded-xl border border-[#E0B0FF]/40 text-[#E0B0FF]">
+                <option value="none">Original</option>
+                <option value="ckb">Kurdish</option>
+                <option value="ja">Japanese</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+            <input type="file" id="up" hidden onChange={handleInitialUpload} accept="video/*,audio/*" />
+            <label htmlFor="up" className="block text-center p-10 border-2 border-dashed border-white/10 rounded-2xl cursor-pointer hover:border-[#E0B0FF]">
+              Upload MP4 or MP3
+            </label>
           </div>
-        </header>
+        )}
 
-        <AnimatePresence mode="wait">
-          {stage === 'upload' && (
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex-1 flex flex-col items-center justify-center">
-              <div className="relative border border-white/10 bg-black/40 backdrop-blur-2xl rounded-[2.5rem] p-10 w-full hover:border-[#E0B0FF]/40 transition-colors shadow-2xl">
-                
-                <div className="grid grid-cols-2 gap-4 mb-8">
-                  <div>
-                    <label className="block text-xs font-bold text-white/50 uppercase tracking-widest mb-2">Original Language</label>
-                    <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#E0B0FF] appearance-none">
-                      <option value="auto">Auto-Detect</option>
-                      <option value="en">English</option>
-                      <option value="ja">Japanese</option>
-                      <option value="ar">Arabic</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-[#E0B0FF]/70 uppercase tracking-widest mb-2">Translate To</label>
-                    <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="w-full bg-[#E0B0FF]/10 border border-[#E0B0FF]/30 rounded-xl px-4 py-3 text-[#E0B0FF] font-bold focus:outline-none focus:border-[#E0B0FF] appearance-none">
-                      <option value="none">No Translation</option>
-                      <option value="ckb">Kurdish (Sorani)</option>
-                      <option value="ku">Kurdish (Kurmanji)</option>
-                      <option value="ja">Japanese</option>
-                      <option value="en">English</option>
-                      <option value="ar">Arabic</option>
-                    </select>
-                  </div>
-                </div>
+        {stage === 'recording' && (
+          <div className="w-full max-w-4xl flex flex-col gap-5">
+            <div className="bg-black rounded-3xl overflow-hidden border border-white/10">
+              {isAudioMode ? (
+                <div className="h-20 flex items-center justify-center bg-purple-900/10 uppercase tracking-widest text-xs font-bold text-[#E0B0FF]">Audio Mode Active</div>
+              ) : (
+                <video ref={mediaRef} src={mediaUrl} className="w-full aspect-video" playsInline muted />
+              )}
+              <audio ref={isAudioMode ? mediaRef : null} src={isAudioMode ? mediaUrl : null} onTimeUpdate={e => setCurrentTime(e.target.currentTime)} onEnded={stopRecording} />
+            </div>
 
-                <div className="text-center border-t border-white/10 pt-8">
-                  {/* NOW ACCEPTS BOTH AUDIO AND VIDEO */}
-                  <input type="file" onChange={handleInitialUpload} className="hidden" id="v-file" accept="video/*,audio/*" />
-                  <label htmlFor="v-file" className="cursor-pointer block">
-                    <div className="w-20 h-20 bg-[#E0B0FF]/10 rounded-[1.5rem] flex items-center justify-center mx-auto mb-6 transition-transform hover:scale-105 hover:bg-[#E0B0FF]/20">
-                      <svg className="w-8 h-8 text-[#E0B0FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                    </div>
-                    <h2 className="text-2xl font-bold mb-2">Import Scene / Audio</h2>
-                    <p className="text-white/40 text-sm">Upload Video or MP3 to generate script</p>
-                  </label>
-                </div>
+            <div className="relative h-64 bg-white/5 rounded-3xl border border-white/10 overflow-hidden p-10">
+              <button onClick={() => setScriptDirection(d => d === 'ltr' ? 'rtl' : 'ltr')} className="absolute top-4 right-4 text-[10px] bg-white/10 px-3 py-1 rounded-full">DIRECTION: {scriptDirection.toUpperCase()}</button>
+              <div className="overflow-y-auto h-full scroll-smooth flex flex-wrap justify-center gap-3" dir={scriptDirection}>
+                {script.map((item, i) => (
+                  <span key={i} ref={el => wordRefs.current[i] = el} className={`text-2xl font-bold px-2 py-1 rounded-lg transition-all ${currentTime >= item.start && currentTime < item.end ? 'bg-[#E0B0FF] text-black scale-110' : 'opacity-30'}`}>
+                    {item.word}
+                  </span>
+                ))}
               </div>
-            </motion.div>
-          )}
+            </div>
 
-          {stage === 'recording' && (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex-1 flex flex-col gap-4 h-full">
-              
-              <div className={`relative w-full rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-2xl shrink-0 ${isAudioMode ? 'h-24 flex items-center justify-center bg-gradient-to-r from-purple-900/20 to-black' : ''}`}>
-                {/* DYNAMIC PLAYER: Shows Video player OR Audio visualizer area */}
-                {isAudioMode ? (
-                  <audio 
-                    ref={mediaRef} 
-                    src={mediaUrl} 
-                    muted={true}
-                    onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
-                    onEnded={stopRecording}
-                    className="hidden"
-                  />
-                ) : (
-                  <video 
-                    ref={mediaRef} 
-                    src={mediaUrl} 
-                    className="w-full aspect-video object-contain"
-                    playsInline
-                    webkit-playsinline="true"
-                    muted={true} 
-                    onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
-                    onEnded={stopRecording}
-                  />
-                )}
+            <div className="flex flex-col gap-3">
+              {!micGranted ? <button onClick={prepareMic} className="bg-white/10 p-5 rounded-2xl font-bold">1. SETUP STUDIO MIC</button> :
+               !isRecording && !recordedBlob ? <button onClick={startAction} className="bg-[#E0B0FF] text-black p-5 rounded-2xl font-black text-xl">2. START DUBBING</button> :
+               isRecording ? <button onClick={stopRecording} className="bg-red-500 p-5 rounded-2xl font-black">STOP</button> :
+               <button onClick={() => submitDub('master')} className="bg-[#E0B0FF] text-black p-5 rounded-2xl font-black">PRODUCE FINAL MASTER</button>}
+            </div>
+          </div>
+        )}
 
-                {isAudioMode && (
-                  <div className="flex items-center gap-2 text-[#E0B0FF]/50 font-bold tracking-widest text-sm uppercase">
-                    <div className="w-3 h-3 bg-[#E0B0FF]/50 rounded-full animate-ping" />
-                    Audio Track Active
-                  </div>
-                )}
-              </div>
-
-              <div className="flex-1 relative rounded-[2rem] overflow-hidden bg-white/[0.02] border border-white/10">
-                <button 
-                  onClick={toggleDirection}
-                  className="absolute top-4 right-4 z-20 bg-white/10 hover:bg-white/20 text-white/70 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest backdrop-blur-md transition-colors border border-white/10 shadow-lg"
-                >
-                  Layout: {scriptDirection.toUpperCase()} ⮂
-                </button>
-
-                <div className="absolute top-0 left-0 w-full h-8 bg-gradient-to-b from-[#050505] to-transparent z-10 pointer-events-none" />
-                <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-[#050505] to-transparent z-10 pointer-events-none" />
-                
-                <div className="absolute inset-0 overflow-y-auto px-5 py-20 scroll-smooth custom-scrollbar">
-                  <p className="text-center text-3xl font-bold leading-relaxed flex flex-wrap justify-center gap-x-2 gap-y-3" dir={scriptDirection}>
-                    {script.map((item, i) => {
-                      const nextStart = script[i + 1] ? script[i + 1].start : item.end + 1;
-                      const isActive = currentTime >= item.start && currentTime < nextStart;
-                      
-                      return (
-                        <span 
-                          key={i} 
-                          ref={el => { if (el) wordRefs.current[i] = el; }}
-                          className={`transition-all duration-200 rounded-xl px-2 py-1 
-                            ${isActive 
-                              ? 'bg-[#E0B0FF] text-black shadow-[0_0_20px_rgba(224,176,255,0.5)] scale-[1.15] z-10' 
-                              : currentTime > item.end ? 'text-white/30' : 'text-white/70'
-                            }`}
-                        >
-                          {item.word}
-                        </span>
-                      );
-                    })}
-                  </p>
-                </div>
-              </div>
-
-              <div className="shrink-0 pt-2 pb-4">
-                {!isRecording && !recordedBlob && !micGranted && (
-                  <button onClick={prepareMic} className="w-full bg-white/10 text-white border border-white/20 h-16 rounded-[1.5rem] font-bold text-lg hover:bg-white/20 transition-all">
-                    1. ENABLE STUDIO MIC
-                  </button>
-                )}
-
-                {!isRecording && !recordedBlob && micGranted && (
-                  <button onClick={startAction} className="w-full bg-[#E0B0FF] text-black h-16 rounded-[1.5rem] font-black text-xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_30px_rgba(224,176,255,0.4)]">
-                    2. ACTION! 🎬
-                  </button>
-                )}
-                
-                {isRecording && (
-                  <button onClick={stopRecording} className="w-full bg-red-500/20 text-red-500 border border-red-500/50 h-16 rounded-[1.5rem] font-black text-xl active:bg-red-500 active:text-white transition-all shadow-[0_0_30px_rgba(239,68,68,0.2)]">
-                    CUT RECORDING
-                  </button>
-                )}
-
-                {recordedBlob && !isRecording && (
-                  <div className="flex flex-col gap-3 w-full">
-                    <button onClick={() => submitDub('master')} className="w-full bg-[#E0B0FF] text-black h-16 rounded-[1.5rem] font-black text-lg shadow-[0_0_20px_rgba(224,176,255,0.3)] active:scale-[0.98] transition-transform uppercase">
-                      {isAudioMode ? "PRODUCE MASTER AUDIO (MP3)" : "PRODUCE MASTER VIDEO (MP4)"}
-                    </button>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button onClick={() => {setRecordedBlob(null); setMicGranted(false);}} className="w-full bg-white/5 text-white border border-white/10 h-14 rounded-[1.25rem] font-bold active:bg-white/10 transition-colors text-sm">
-                        DISCARD
-                      </button>
-                      <button onClick={() => submitDub('vocals_only')} className="w-full bg-white text-black h-14 rounded-[1.25rem] font-bold active:bg-zinc-200 transition-colors text-sm">
-                        SAVE RAW VOCALS
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {stage === 'processing' && (
-             <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="w-16 h-16 relative">
-                  <div className="absolute inset-0 border-4 border-white/10 rounded-full"></div>
-                  <div className="absolute inset-0 border-4 border-[#E0B0FF] border-t-transparent rounded-full animate-spin"></div>
-                </div>
-                <p className="mt-6 text-xs tracking-widest text-[#E0B0FF] font-bold animate-pulse uppercase">
-                  {script.length === 0 ? "Translating Script..." : "Rendering Master..."}
-                </p>
-             </div>
-          )}
-
-          {stage === 'result' && (
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex-1 flex flex-col items-center justify-center text-center">
-              <div className="bg-white/[0.02] border border-white/10 p-10 rounded-[2.5rem] w-full max-w-md">
-                <h2 className="text-3xl font-black mb-8 text-white">Project Mastered.</h2>
-                <a href={outputUrl} download className="block w-full bg-[#E0B0FF] text-black py-5 rounded-[1.5rem] font-black text-lg hover:shadow-[0_0_30px_rgba(224,176,255,0.4)] transition-all">
-                  DOWNLOAD
-                </a>
-                <button onClick={goHome} className="mt-6 text-white/40 text-xs uppercase tracking-widest font-bold underline hover:text-white transition-colors">
-                  Close Project
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+        {stage === 'processing' && <div className="animate-spin w-10 h-10 border-4 border-[#E0B0FF] border-t-transparent rounded-full" />}
+        
+        {stage === 'result' && (
+          <div className="text-center">
+            <h2 className="text-3xl font-black mb-5">Mastering Complete</h2>
+            <a href={outputUrl} download className="bg-[#E0B0FF] text-black px-10 py-5 rounded-2xl font-bold">DOWNLOAD RESULT</a>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
